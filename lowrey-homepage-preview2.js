@@ -9,6 +9,7 @@
   var root = document.documentElement, hero, video, frame, observer, timer, panel;
   var reduced = matchMedia('(prefers-reduced-motion: reduce)');
   var oldVideo, hold = 0;
+  var revealObserver, animations = [], photos = [], motionTargets = [];
   var style = document.createElement('style');
   style.id = 'lowrey-homepage-preview-style';
   style.textContent = [
@@ -55,6 +56,34 @@
     '@media(max-width:760px){.lowrey-homepage-preview .md-hero.layout1{min-height:600px!important}.lowrey-homepage-preview .md-hero .media-content-v2{padding:85px 7% 110px!important}.lowrey-homepage-preview .md-team-desc.layout7 .top-content{grid-template-columns:1fr;gap:30px}.lowrey-homepage-preview .md-team.layout10,.lowrey-homepage-preview .md-cta.layout10{padding:65px 7%!important}.lowrey-homepage-preview .md-team.layout10 .agent-headshot{box-shadow:9px 12px 0 #071827}}',
     '@media(prefers-reduced-motion:reduce){.lowrey-homepage-preview .md-hero .site-title{transform:none!important}}'
   ].join('\n');
+  style.textContent += '\n' + [
+    'html.lowrey-homepage-preview .md-team.layout10 a[href*="/meeting/"],html.lowrey-homepage-preview .md-team.layout10 a[href*="/meeting/"] *{color:#fff!important;background:#071827!important}',
+    '.lowrey-homepage-preview .lr-photo-depth{translate:0 var(--lr-photo-y,0px);rotate:y var(--lr-photo-angle,0deg);transform-origin:center;backface-visibility:hidden}',
+    '.lowrey-homepage-preview .md-cta.layout10 .cta-container{perspective:1400px}',
+    '.lowrey-homepage-preview .md-house .house-imgs{overflow:hidden}',
+    '@media(hover:hover) and (prefers-reduced-motion:no-preference){.lowrey-homepage-preview .md-house .house-imgs img{transition:scale .65s cubic-bezier(.2,.7,.2,1)}.lowrey-homepage-preview .md-house .house-imgs:hover img{scale:1.035}.lowrey-homepage-preview a[href*="/meeting/"]{transition:box-shadow .25s ease,translate .25s ease}.lowrey-homepage-preview a[href*="/meeting/"]:hover{translate:0 -3px;box-shadow:0 10px 25px #07182725}}',
+    '@media(prefers-reduced-motion:reduce){.lowrey-homepage-preview .lr-photo-depth{translate:none!important;rotate:none!important}}'
+  ].join('\n');
+  function setupMotion() {
+    motionTargets = Array.from(document.querySelectorAll('.md-team.layout10 .agent-name,.md-cta .title-box,.md-cta.layout2 .media-info,.md-team.layout8 .module-header,.md-team-desc.layout7 .title-wrap,.md-house .title-wrap,.md-featured-area .featured-area-header'));
+    photos = Array.from(document.querySelectorAll('.md-cta.layout10 .img-content'));
+    photos.forEach(function (el) { el.classList.add('lr-photo-depth'); });
+    if (!('IntersectionObserver' in window)) return;
+    revealObserver = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        revealObserver.unobserve(entry.target);
+        if (reduced.matches || !entry.target.animate) return;
+        // Content is visible by default, even if animation support fails.
+        var animation = entry.target.animate([
+          {opacity:0.65,translate:'0 32px'},
+          {opacity:1,translate:'0 0'}
+        ], {duration:850,easing:'cubic-bezier(.16,1,.3,1)',fill:'none'});
+        animations.push(animation);
+      });
+    }, {threshold:0.15});
+    motionTargets.forEach(function (el) { revealObserver.observe(el); });
+  }
   style.textContent += [
     '.lowrey-homepage-preview :is(h1,h2,h3,h4,h5,h6,p,.site-title,.site-p,.agent-name,.single-intro,.desc-intro,.md-header a),.lowrey-homepage-preview :is(h1,h2,h3,h4,h5,h6,.site-title,.site-p,.single-intro,.desc-intro) *{font-family:Questrial,Arial,sans-serif!important;text-shadow:none!important;font-style:normal!important}',
     '.lowrey-homepage-preview :is(h1,h2,h3,h4,.site-title) *{font-weight:400!important}',
@@ -90,6 +119,13 @@
     hero.style.setProperty('--lr-rise', -progress * 35 + 'px');
     hero.style.setProperty('--lr-depth', progress * (mobile ? 45 : 90) + 'px');
     hero.style.setProperty('--lr-tilt', -progress * (mobile ? 13 : 22) + 'deg');
+    if (reduced.matches) animations.forEach(function (animation) { animation.cancel(); });
+    photos.forEach(function (el) {
+      var rect = el.parentElement.getBoundingClientRect();
+      var phase = Math.max(-1, Math.min(1, (innerHeight / 2 - rect.top - rect.height / 2) / innerHeight));
+      el.style.setProperty('--lr-photo-y', (reduced.matches ? 0 : phase * (mobile ? 10 : 30)) + 'px');
+      el.style.setProperty('--lr-photo-angle', (reduced.matches || mobile ? 0 : phase * 5) + 'deg');
+    });
   }
   function schedule() { if (!frame) frame = requestAnimationFrame(update); }
   function button(label, action) {
@@ -112,11 +148,15 @@
       if (!reduced.matches && !(navigator.connection && navigator.connection.saveData)) video.play().catch(function () { toggle.textContent = 'Play video'; });
     }
     document.body.appendChild(panel);
+    setupMotion();
     addEventListener('scroll', schedule, {passive:true}); addEventListener('resize', schedule);
     reduced.addEventListener('change', schedule); schedule();
   }
   window.lowreyHomepagePreviewCleanup = function () {
     observer.disconnect(); clearTimeout(timer); cancelAnimationFrame(frame);
+    if (revealObserver) revealObserver.disconnect();
+    animations.forEach(function (animation) { animation.cancel(); });
+    photos.forEach(function (el) { el.classList.remove('lr-photo-depth'); el.style.removeProperty('--lr-photo-y'); el.style.removeProperty('--lr-photo-angle'); });
     removeEventListener('scroll', schedule); removeEventListener('resize', schedule); reduced.removeEventListener('change', schedule);
     root.classList.remove('lowrey-homepage-preview'); style.remove(); if (panel) panel.remove();
     if (hero) ['space','hold','rise','depth','tilt'].forEach(function (key) { hero.style.removeProperty('--lr-' + key); });
